@@ -1,0 +1,20 @@
+# Private/local conversation material — NEVER commit
+.private-conversation/
+conversation-transcript.*
+*.conversation.md
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local development
+.venv/
+venv/
+__pycache__/
+node_modules/
+dist/
+build/
+.DS_Store
