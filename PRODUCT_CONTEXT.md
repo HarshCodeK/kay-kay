@@ -776,7 +776,7 @@ The original founder request was to preserve the idea without exposing the priva
 Important distinction:
 
 - This file is a synthesized product context, not a raw conversation transcript.
-- The repository is private.
+- The repository is public; visibility is a deliberate choice so the product thesis is shareable.
 - Never commit API keys, credentials, raw private conversation transcripts, personal secrets, or customer data.
 - `.gitignore` includes patterns for local/private conversation material and secrets.
 - Do not assume `.gitignore` makes already-committed information private; repository visibility and access controls are what matter.
