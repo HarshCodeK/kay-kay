@@ -22,6 +22,8 @@ def init_tables():
             key_id TEXT PRIMARY KEY,
             name TEXT,
             key_hash TEXT UNIQUE,
+            spend_cap_usd REAL DEFAULT 0,
+            active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now'))
         )""")
         # Seed the admin key once, so `GET /v1/usage` works out of the box.
@@ -31,14 +33,42 @@ def init_tables():
                   ("admin", "admin (bootstrap)", h))
 
 
-def issue_key(name: str) -> str:
+def issue_key(name: str, spend_cap_usd: float = 0) -> str:
     """Create a new gateway API key, return the plaintext once."""
     key = "kk-" + secrets.token_urlsafe(24)
     key_id = "k_" + secrets.token_hex(6)
     with _conn() as c:
-        c.execute("INSERT INTO api_keys (key_id, name, key_hash) VALUES (?, ?, ?)",
-                  (key_id, name, hashlib.sha256(key.encode()).hexdigest()))
+        c.execute("INSERT INTO api_keys (key_id, name, key_hash, spend_cap_usd) VALUES (?, ?, ?, ?)",
+                  (key_id, name, hashlib.sha256(key.encode()).hexdigest(), spend_cap_usd))
     return key
+
+
+def list_keys() -> list[dict]:
+    """List all keys (without hashes)."""
+    with _conn() as c:
+        rows = c.execute("SELECT key_id, name, spend_cap_usd, active, created_at FROM api_keys ORDER BY created_at DESC").fetchall()
+    return [{"key_id": r[0], "name": r[1], "spend_cap_usd": r[2], "active": bool(r[3]), "created_at": r[4]} for r in rows]
+
+
+def revoke_key(key_id: str) -> bool:
+    """Soft-revoke a key (set active=0)."""
+    with _conn() as c:
+        c.execute("UPDATE api_keys SET active=0 WHERE key_id=?", (key_id,))
+        return c.total_changes > 0
+
+
+def get_key_spend_cap(key_id: str) -> float:
+    """Return the spend cap for a key (0 = unlimited)."""
+    with _conn() as c:
+        row = c.execute("SELECT spend_cap_usd FROM api_keys WHERE key_id=?", (key_id,)).fetchone()
+    return row[0] if row else 0.0
+
+
+def check_key_active(key_id: str) -> bool:
+    """Check if a key is still active."""
+    with _conn() as c:
+        row = c.execute("SELECT active FROM api_keys WHERE key_id=?", (key_id,)).fetchone()
+    return bool(row[0]) if row else False
 
 
 def verify_key(key: str) -> str | None:

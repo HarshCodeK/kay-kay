@@ -95,3 +95,68 @@ def test_gateway_auth_endpoints(tmp_path, monkeypatch):
     u = client.get("/v1/usage", headers={"Authorization": "Bearer kk-test-admin"}).json()
     assert u["total_requests"] == 1
     assert u["failed"] == 1
+
+
+def test_spend_cap_enforcement(tmp_path, monkeypatch):
+    auth, telemetry, _, _ = _fresh(tmp_path, monkeypatch)
+    auth.init_tables()
+    telemetry.init_tables()
+    # Issue a key with a $0.01 spend cap
+    key = auth.issue_key("cap-test", spend_cap_usd=0.01)
+    key_id = auth.verify_key(key)
+    assert key_id is not None
+    # Log some spending that exceeds the cap
+    telemetry.log_request(key_id, "groq", "llama-3.3-70b-versatile", "ok", 200, 100, 100000, 50000)
+    spent = telemetry.get_key_spend(key_id)
+    assert spent > 0.01
+    # Check cap
+    cap = auth.get_key_spend_cap(key_id)
+    assert cap == 0.01
+
+
+def test_key_lifecycle(tmp_path, monkeypatch):
+    auth, _, _, _ = _fresh(tmp_path, monkeypatch)
+    auth.init_tables()
+    # Issue
+    key = auth.issue_key("lifecycle-test", spend_cap_usd=5.0)
+    key_id = auth.verify_key(key)
+    assert key_id is not None
+    assert auth.check_key_active(key_id) is True
+    # List
+    keys = auth.list_keys()
+    names = [k["name"] for k in keys]
+    assert "lifecycle-test" in names
+    # Revoke
+    assert auth.revoke_key(key_id) is True
+    assert auth.check_key_active(key_id) is False
+    # Still verifiable (hash exists) but active check fails
+    assert auth.verify_key(key) is not None
+
+
+def test_admin_key_management_api(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    from fastapi.testclient import TestClient
+    import src.gateway as gateway
+    importlib.reload(gateway)
+    client = TestClient(gateway.app)
+    headers = {"Authorization": "Bearer kk-test-admin"}
+
+    # List keys
+    r = client.get("/v1/keys", headers=headers)
+    assert r.status_code == 200
+    assert len(r.json()["keys"]) >= 1  # admin key seeded
+
+    # Create key
+    r = client.post("/v1/keys", json={"name": "test-key", "spend_cap_usd": 10.0}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["key"].startswith("kk-")
+    new_key_id = r.json()["key_id"]
+
+    # Revoke key
+    r = client.post(f"/v1/keys/{new_key_id}/revoke", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["revoked"] is True
+
+    # Non-admin can't manage keys
+    r = client.post("/v1/keys", json={"name": "nope"}, headers={"Authorization": "Bearer kk-not-admin"})
+    assert r.status_code == 403

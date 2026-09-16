@@ -46,18 +46,21 @@ def log_request(key_id, provider, model, status, http_status, latency_ms,
     return rid
 
 
-def usage_summary() -> dict:
+def usage_summary(key_id: str = None) -> dict:
+    """Usage summary, optionally filtered by key_id."""
     init_tables()  # idempotent; lets /v1/usage work before any traffic
     with _conn() as c:
-        total = c.execute("""SELECT COUNT(*),
+        where = "WHERE key_id=?" if key_id else ""
+        params = (key_id,) if key_id else ()
+        total = c.execute(f"""SELECT COUNT(*),
                 SUM(status='ok'), COALESCE(SUM(est_cost_usd),0),
                 COALESCE(AVG(latency_ms),0),
                 COALESCE(SUM(prompt_tokens),0), COALESCE(SUM(completion_tokens),0)
-            FROM requests""").fetchone()
-        by_model = c.execute("""SELECT provider, model, COUNT(*), COALESCE(SUM(est_cost_usd),0)
-            FROM requests GROUP BY provider, model ORDER BY 3 DESC""").fetchall()
-        recent = c.execute("""SELECT ts, key_id, provider, model, status, latency_ms, est_cost_usd
-            FROM requests ORDER BY ts DESC LIMIT 20""").fetchall()
+            FROM requests {where}""", params).fetchone()
+        by_model = c.execute(f"""SELECT provider, model, COUNT(*), COALESCE(SUM(est_cost_usd),0)
+            FROM requests {where} GROUP BY provider, model ORDER BY 3 DESC""", params).fetchall()
+        recent = c.execute(f"""SELECT ts, key_id, provider, model, status, latency_ms, est_cost_usd
+            FROM requests {where} ORDER BY ts DESC LIMIT 20""", params).fetchall()
     return {
         "total_requests": total[0] or 0,
         "successful": total[1] or 0,
@@ -69,3 +72,11 @@ def usage_summary() -> dict:
         "by_model": [list(r) for r in by_model],
         "recent": [list(r) for r in recent],
     }
+
+
+def get_key_spend(key_id: str) -> float:
+    """Total USD spent by a key."""
+    init_tables()
+    with _conn() as c:
+        row = c.execute("SELECT COALESCE(SUM(est_cost_usd),0) FROM requests WHERE key_id=? AND status='ok'", (key_id,)).fetchone()
+    return float(row[0]) if row else 0.0
