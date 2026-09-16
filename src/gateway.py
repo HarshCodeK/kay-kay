@@ -7,6 +7,7 @@ Point an existing OpenAI client at it by changing base_url and api_key:
 """
 import time
 from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src import auth, telemetry
