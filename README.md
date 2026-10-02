@@ -120,3 +120,7 @@ interviewer will actually ask, with answers grounded in this code.
 - **Cost is an estimate** from published per-token rates, not billing. The reservation is deliberately conservative so the spend cap is a safety boundary, not a billing ledger.
 - **The agent's tools are read-only.** Regex over text the caller supplies.
   Adding a write tool means adding a trust boundary, not just a function.
+
+## License
+
+MIT.
