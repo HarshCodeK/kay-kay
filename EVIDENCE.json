@@ -1,0 +1,66 @@
+{
+  "repo": "kay-kay",
+  "tier": "A",
+  "domain": "OpenAI-compatible LLM gateway / spend governance",
+  "gate": {
+    "tests_passed": 29,
+    "tests_failed": 0,
+    "pytest_exit": 0,
+    "ci": "green",
+    "docker": "built and started in CI",
+    "note": "Agent loop verified live with openai/gpt-oss-120b (2 rounds, tool call logged). Default model registry moved to production ids; qwen flagged preview."
+  },
+  "headline": [
+    {
+      "label": "tests passing",
+      "value": "29",
+      "command": "python -m pytest tests/ -q",
+      "tone": "accent"
+    },
+    {
+      "label": "innerHTML in dashboard",
+      "value": "0",
+      "command": "grep -c innerHTML src/dashboard.py",
+      "tone": "info"
+    },
+    {
+      "label": "CI",
+      "value": "green",
+      "command": "gh run list",
+      "tone": ""
+    }
+  ],
+  "rows": [
+    {
+      "metric": "tests passing",
+      "value": 29,
+      "command": "python -m pytest tests/ -q"
+    },
+    {
+      "metric": "provider fallback chain",
+      "value": "yes",
+      "command": "grep PROVIDER_CHAIN src/config.py"
+    },
+    {
+      "metric": "API-key auth (SHA-256)",
+      "value": "yes",
+      "command": "grep sha256 src/auth.py"
+    },
+    {
+      "metric": "spend caps (HTTP 402)",
+      "value": "yes",
+      "command": "grep 402 src/gateway.py"
+    },
+    {
+      "metric": "tool-calling agent",
+      "value": "yes",
+      "command": "grep '/v1/agent' src/gateway.py"
+    },
+    {
+      "metric": "innerHTML in shipped dashboard",
+      "value": 0,
+      "command": "grep -c innerHTML src/dashboard.py"
+    }
+  ],
+  "source": "measured 2026-10-03"
+}

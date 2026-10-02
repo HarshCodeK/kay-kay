@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # No API key: the agent loop is tested with the provider stubbed.
+      - run: python -m pytest tests/ -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with: {context: ., push: false, load: true, tags: kaykay:test}
+      - name: Start it and prove auth is enforced
+        run: |
+          docker run -d --name kk -p 8000:8000 kaykay:test
+          for i in $(seq 1 20); do
+            # 401 without a key proves routing, auth and SQLite are all alive.
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/v1/models || true)
+            if [ "$code" = "401" ]; then
+              echo "gateway up, auth enforced"
+              curl -fsS http://127.0.0.1:8000/health
+              exit 0
+            fi
+            sleep 3
+          done
+          docker logs kk; exit 1
