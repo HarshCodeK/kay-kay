@@ -114,8 +114,8 @@ def reserve_budget(key_id: str, cap_usd: float, amount_usd: float, ttl_s: int = 
     rid = "b_" + uuid.uuid4().hex
     init()
     with _conn() as c:
-        c.execute("DELETE FROM budget_reservations WHERE expires_at <= ?", (now,))
         c.execute("BEGIN IMMEDIATE")
+        c.execute("DELETE FROM budget_reservations WHERE expires_at <= ?", (now,))
         spent = c.execute(
             "SELECT COALESCE(SUM(cost_usd),0) FROM requests WHERE key_id=? AND status='ok'",
             (key_id,),
