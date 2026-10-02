@@ -71,11 +71,21 @@ def _run_metered_chat(key_id: str, body: dict):
         telemetry.release_budget(reservation)
         raise HTTPException(502, str(ex))
 
-    usage = response.get("usage") or {}
+    usage = response.get("usage")
+    if not isinstance(usage, dict) or not all(key in usage for key in ("prompt_tokens", "completion_tokens")):
+        telemetry.record(
+            key_id, provider, response.get("model", body.get("model")), "error",
+            (time.time() - started) * 1000,
+            error="provider omitted token usage; reservation retained until expiry",
+        )
+        # Fail closed. Without usage accounting, releasing the reservation
+        # would let repeated calls bypass the spend boundary.
+        raise providers.ProviderError("provider response omitted token usage")
+
     telemetry.record(
         key_id, provider, response.get("model", body.get("model")), "ok",
         (time.time() - started) * 1000,
-        usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
+        int(usage["prompt_tokens"]), int(usage["completion_tokens"]),
     )
     telemetry.release_budget(reservation)
     return response, provider
