@@ -80,7 +80,6 @@ def _run_metered_chat(key_id: str, body: dict):
         )
         # Fail closed. Without usage accounting, releasing the reservation
         # would let repeated calls bypass the spend boundary.
-        telemetry.release_budget(reservation)
         raise HTTPException(502, "provider response omitted token usage")
 
     telemetry.record(
