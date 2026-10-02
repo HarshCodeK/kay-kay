@@ -321,3 +321,17 @@ def test_dashboard_has_no_innerhtml():
     code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
     assert "innerHTML" not in code, "dashboard builds HTML from request data"
     assert "textContent" in DASHBOARD_HTML
+
+
+
+def test_budget_reservation_is_atomic(fresh):
+    _, auth, telemetry, _ = fresh
+    auth.init(); telemetry.init()
+    key = auth.issue("capped", spend_cap=0.001)
+    key_id = auth.verify(key)
+    import concurrent.futures
+    def reserve_once(_):
+        return telemetry.reserve_budget(key_id, 0.001, 0.0008)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        results = list(ex.map(reserve_once, range(2)))
+    assert sum(r is not None for r in results) == 1
