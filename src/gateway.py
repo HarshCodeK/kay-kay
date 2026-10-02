@@ -6,13 +6,14 @@
 That is the entire integration. Everything else is what the gateway does on the
 way through.
 """
+import json
 import time
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from src import auth, providers, telemetry
-from src.config import DEFAULT_MODELS, PROVIDER_CHAIN
+from src import auth, models, providers, telemetry
+from src.config import DEFAULT_MODELS, PROVIDER_CHAIN, DEFAULT_REQUEST_COMPLETION_TOKENS, MAX_REQUEST_COMPLETION_TOKENS
 
 app = FastAPI(title="Kay-Kay Gateway", version="1.0.0")
 _bearer = HTTPBearer(auto_error=False)
@@ -42,32 +43,31 @@ def _admin(admin: HTTPAuthorizationCredentials = Depends(_bearer)):
     return key_id
 
 
-def _check_spend(key_id: str):
-    cap = auth.spend_cap(key_id)
-    if cap > 0 and telemetry.spend_for(key_id) >= cap:
-        raise HTTPException(402, {
-            "error": "spend_cap_exceeded",
-            "cap_usd": cap,
-            "message": f"Key {key_id} has spent its ${cap:.2f} budget.",
-        })
-
-
-@app.post("/v1/chat/completions")
-def chat_completions(body: dict, key_id: str = Depends(_key_id)):
-    """Drop-in replacement for the OpenAI endpoint."""
-    _check_spend(key_id)
-    # Default to a model the account can actually serve. The previous default
-    # was retired by the provider, so a client that omitted `model` got a 404.
+def _prepare_body(body: dict, model_id: str) -> tuple[dict, float]:
     body = dict(body)
-    body.setdefault("model", DEFAULT_MODELS[0])
+    body.setdefault("model", model_id)
+    max_tokens = int(body.get("max_tokens") or DEFAULT_REQUEST_COMPLETION_TOKENS)
+    if max_tokens < 1 or max_tokens > MAX_REQUEST_COMPLETION_TOKENS:
+        raise HTTPException(400, {"error": "invalid_max_tokens", "max_tokens": MAX_REQUEST_COMPLETION_TOKENS})
+    body["max_tokens"] = max_tokens
+    prompt_upper = len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    return body, models.estimate_cost_usd(body["model"], prompt_upper, max_tokens)
+
+def _run_metered_chat(key_id: str, body: dict):
+    cap = auth.spend_cap(key_id)
+    body, worst_case = _prepare_body(body, body.get("model") or DEFAULT_MODELS[0])
+    reservation = telemetry.reserve_budget(key_id, cap, worst_case)
+    if cap > 0 and reservation is None:
+        raise HTTPException(402, {"error": "spend_cap_exceeded", "message": "request worst-case reservation exceeds remaining budget"})
 
     started = time.time()
     try:
         response, provider = providers.chat(body)
-    except providers.ProviderError as e:
+    except providers.ProviderError as ex:
         telemetry.record(key_id, "-", body.get("model"), "error",
-                         (time.time() - started) * 1000, error=str(e))
-        raise HTTPException(502, str(e))
+                         (time.time() - started) * 1000, error=str(ex))
+        telemetry.release_budget(reservation)
+        raise HTTPException(502, str(ex))
 
     usage = response.get("usage") or {}
     telemetry.record(
@@ -75,7 +75,13 @@ def chat_completions(body: dict, key_id: str = Depends(_key_id)):
         (time.time() - started) * 1000,
         usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
     )
-    return response
+    telemetry.release_budget(reservation)
+    return response, provider
+
+@app.post("/v1/chat/completions")
+def chat_completions(body: dict, key_id: str = Depends(_key_id)):
+    """Drop-in replacement for the OpenAI endpoint."""
+    return _run_metered_chat(key_id, body)[0]
 
 
 @app.get("/v1/models")
@@ -96,20 +102,13 @@ def agent(body: dict, key_id: str = Depends(_key_id)):
             "error": "unknown_model", "model": model_id,
             "advertised": DEFAULT_MODELS,
         })
-    _check_spend(key_id)
-
-    started = time.time()
+    rounds = max(1, min(int(body.get("max_rounds") or agent_mod.MAX_ROUNDS), agent_mod.MAX_ROUNDS))
     result = agent_mod.run(
         task=str(body.get("task", ""))[:8000],
         model_id=model_id,
-        max_rounds=int(body.get("max_rounds") or agent_mod.MAX_ROUNDS),
+        max_rounds=rounds,
         conversation=str(body.get("conversation", ""))[:4000],
-    )
-    telemetry.record(
-        key_id, "agent", model_id,
-        "error" if result["mode"] == "provider_error" else "ok",
-        (time.time() - started) * 1000,
-        error=result["answer"] if result["mode"] == "provider_error" else None,
+        chat_fn=lambda request_body: _run_metered_chat(key_id, request_body),
     )
     return {"key_id": key_id, **result}
 
