@@ -1,7 +1,6 @@
 # KAY-KAY — LLM Gateway
 
-An OpenAI-compatible gateway with provider fallback, API keys, spend caps and
-per-request telemetry. Plus a bounded tool-calling agent that runs through it.
+An OpenAI-compatible gateway with provider fallback, API keys, conservative spend reservations and per-request telemetry. Plus a bounded tool-calling agent whose provider calls pass through the same accounting path.
 
 ```python
 from openai import OpenAI
@@ -22,21 +21,18 @@ That is the entire integration. Everything else happens on the way through.
 | Drop-in OpenAI endpoint | `POST /v1/chat/completions` |
 | Provider fallback + retry | `src/providers.py` |
 | API keys, hashed | `src/auth.py` |
-| Spend caps | `402` when a key exhausts its budget |
+| Spend caps | `402` before a request whose conservative worst-case reservation would exceed the remaining budget |
 | Per-request telemetry | `src/telemetry.py` |
 | Usage dashboard | `/dashboard`, or `streamlit run usage_dashboard.py` |
 | Tool-calling agent | `POST /v1/agent` |
 
 ---
 
-## The agent is capped like everything else
+## The spend boundary is enforced before each provider call
 
-`run_agent` calls `providers.chat` — the same function any client uses. So agent
-turns are subject to the same spend caps and land in the same telemetry table.
+Each request reserves a conservative worst-case cost before it is sent upstream. The reservation includes a bounded `max_tokens` value, and SQLite makes the reservation atomic so concurrent requests cannot both consume the same remaining budget. Actual provider usage is recorded afterward and the unused reservation is released.
 
-That is deliberate. An agent that called the provider directly would be exactly
-the unbounded-spend hole this project exists to close. There is a test asserting
-`agent.py` never imports the provider SDK.
+Agent turns use the same metered path on every round, and `max_rounds` is clamped to the configured bound.
 
 **The tools are deterministic Python.** The model decides *when* to call a tool
 and supplies its arguments; the tool computes the result. A tool whose output the
@@ -101,7 +97,7 @@ streamlit run usage_dashboard.py   # telemetry view
 |---|---|---|
 | POST | `/v1/chat/completions` | OpenAI-compatible completion |
 | GET | `/v1/models` | Live model ids |
-| POST | `/v1/agent` | One agent turn (capped, logged) |
+| POST | `/v1/agent` | Bounded agent run; every provider turn is metered |
 | GET | `/v1/agent/tools` | Agent tool manifest |
 | GET | `/v1/usage` | Usage summary |
 | GET | `/v1/usage/{key_id}` | Per-key usage (admin) |
@@ -121,6 +117,6 @@ interviewer will actually ask, with answers grounded in this code.
 
 - **Single-machine, local.** No rate limiting and no lockout after repeated
   failures. Fine bound to localhost, not exposed to a network.
-- **Cost is an estimate** from published per-token rates, not billing.
+- **Cost is an estimate** from published per-token rates, not billing. The reservation is deliberately conservative so the spend cap is a safety boundary, not a billing ledger.
 - **The agent's tools are read-only.** Regex over text the caller supplies.
   Adding a write tool means adding a trust boundary, not just a function.
