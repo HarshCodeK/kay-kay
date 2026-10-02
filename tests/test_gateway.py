@@ -46,14 +46,14 @@ def test_issue_and_verify_key(tmp_path, monkeypatch):
 def test_telemetry_summary_math(tmp_path, monkeypatch):
     _, telemetry, _, _ = _fresh(tmp_path, monkeypatch)
     telemetry.init_tables()
-    telemetry.log_request("admin", "groq", "llama-3.3-70b-versatile", "ok", 200, 100.0, 50, 20)
-    telemetry.log_request("admin", "groq", "llama-3.3-70b-versatile", "error", 502, 300.0, 10, 0)
+    telemetry.log_request("admin", "groq", "qwen/qwen3.8-27b", "ok", 200, 100.0, 50, 20)
+    telemetry.log_request("admin", "groq", "qwen/qwen3.8-27b", "error", 502, 300.0, 10, 0)
     s = telemetry.usage_summary()
     assert s["total_requests"] == 2
     assert s["successful"] == 1
     assert s["failed"] == 1
     assert s["total_prompt_tokens"] == 60
-    # cost estimate: (50*0.59 + 20*0.79 + 10*0.59)/1M — just check it's positive & small
+    # cost comes from the live price table; just assert it is positive and small
     assert 0 < s["est_cost_usd"] < 0.001
     assert len(s["recent"]) == 2
 
@@ -84,12 +84,16 @@ def test_gateway_auth_endpoints(tmp_path, monkeypatch):
     r = client.get("/v1/models", headers={"Authorization": "Bearer kk-test-admin"})
     assert r.status_code == 200
     assert r.json()["object"] == "list"
-    assert any(m["id"] == "llama-3.3-70b-versatile" for m in r.json()["data"])
+    advertised = {m["id"] for m in r.json()["data"]}
+    assert "qwen/qwen3.8-27b" in advertised
+    # No retired id may be advertised, or clients auto-discovering 404.
+    assert not (advertised & {"llama-3.3-70b-versatile",
+                              "llama-4-scout-17b-16e-instruct"})
     # usage endpoint reflects zero requests then one failed call
     u = client.get("/v1/usage", headers={"Authorization": "Bearer kk-test-admin"}).json()
     assert u["total_requests"] == 0
     # chat completion with no providers configured -> 502 + logged
-    r = client.post("/v1/chat/completions", json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}]},
+    r = client.post("/v1/chat/completions", json={"model": "qwen/qwen3.8-27b", "messages": [{"role": "user", "content": "hi"}]},
                     headers={"Authorization": "Bearer kk-test-admin"})
     assert r.status_code == 502
     u = client.get("/v1/usage", headers={"Authorization": "Bearer kk-test-admin"}).json()
@@ -106,7 +110,7 @@ def test_spend_cap_enforcement(tmp_path, monkeypatch):
     key_id = auth.verify_key(key)
     assert key_id is not None
     # Log some spending that exceeds the cap
-    telemetry.log_request(key_id, "groq", "llama-3.3-70b-versatile", "ok", 200, 100, 100000, 50000)
+    telemetry.log_request(key_id, "groq", "qwen/qwen3.8-27b", "ok", 200, 100, 100000, 50000)
     spent = telemetry.get_key_spend(key_id)
     assert spent > 0.01
     # Check cap

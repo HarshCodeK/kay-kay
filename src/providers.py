@@ -69,8 +69,12 @@ def call_chat_completion(body: dict, log_fn=print) -> tuple[dict, str]:
 
 
 def list_models() -> list[dict]:
-    """Advertise a stable model list across providers."""
-    return [
-        {"id": "llama-3.3-70b-versatile", "object": "model", "owned_by": "groq"},
-        {"id": "llama-4-scout-17b-16e-instruct", "object": "model", "owned_by": "groq"},
-    ]
+    """Advertise a stable model list across providers.
+
+    Why this changed: it used to return two ids that Groq had already retired,
+    so any client that auto-discovered models got a 404 on its first call. The
+    list now comes from config.DEFAULT_MODELS.
+    """
+    from src.config import advertised_models
+
+    return advertised_models()

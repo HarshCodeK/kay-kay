@@ -51,10 +51,21 @@ def list_keys() -> list[dict]:
 
 
 def revoke_key(key_id: str) -> bool:
-    """Soft-revoke a key (set active=0)."""
+    """Soft-revoke a key (set active=0). True only if a row actually changed.
+
+    Why not `c.total_changes`: that counter is per-connection, not per-statement,
+    so it reports every row this connection has touched since it opened — not
+    just this UPDATE. On a long-lived connection it returns True for a key that
+    was already revoked, which is a lie about state. `cursor.rowcount` is the
+    statement's own count.
+
+    Note the `with` block: committing on exit. On Python 3.13 the sqlite3
+    connection context manager commits but does NOT close, which is fine here
+    but worth knowing.
+    """
     with _conn() as c:
-        c.execute("UPDATE api_keys SET active=0 WHERE key_id=?", (key_id,))
-        return c.total_changes > 0
+        cur = c.execute("UPDATE api_keys SET active=0 WHERE key_id=?", (key_id,))
+        return cur.rowcount > 0
 
 
 def get_key_spend_cap(key_id: str) -> float:
