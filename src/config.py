@@ -42,6 +42,8 @@ DEFAULT_MODELS = list(MODELS)
 
 MAX_RETRIES = 2
 TIMEOUT_S = 60
+DEFAULT_REQUEST_COMPLETION_TOKENS = 1024
+MAX_REQUEST_COMPLETION_TOKENS = 4096
 
 # USD per 1M tokens as (input, output). Keyed by model id so a price cannot
 # silently apply to the wrong model. An unlisted model falls back rather than
