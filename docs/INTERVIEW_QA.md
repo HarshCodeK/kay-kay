@@ -36,10 +36,7 @@ rather than hide it.
 
 ## Q: How are spend caps enforced?
 
-A: Each request is charged to its key from the telemetry table. Before a
-chat/completions or agent call, `_check_spend` compares the key's recorded spend
-against its cap; at or over budget returns HTTP 402 with `spend_cap_exceeded`.
-Agent turns are recorded the same way, so "agent mode" cannot bypass the cap.
+A: Each request is charged to its key from the telemetry table. Before each provider call, the gateway computes a conservative worst-case cost from the bounded `max_tokens` plus a conservative prompt-size upper bound. It atomically reserves that amount in SQLite against the key's cap; if the reservation would exceed the remaining budget, the request gets HTTP 402. Actual token usage is recorded afterward and the unused reservation is released. If a successful provider response omits token-usage fields, the gateway fails closed and keeps the reservation until expiry rather than releasing unaccounted spend.
 
 ## Q: Why must the agent route through the gateway?
 
@@ -65,10 +62,7 @@ length, text size, hit count) so a single call cannot flood the context.
 
 ## Q: How is the telemetry table used?
 
-A: Every request — chat or agent — writes one row: key, provider, model, status,
-latency, token counts, error. The spend cap reads it, the dashboard reads it,
-`/v1/usage` aggregates it. One table is the single source of truth for both
-billing-ish display and cost control.
+A: Successful provider calls write rows to the `requests` table with key, provider, model, status, latency, token counts, and estimated cost. A separate `budget_reservations` table holds temporary pre-request reservations so concurrent calls cannot consume the same remaining budget. `/v1/usage` aggregates the recorded request history.
 
 ## Q: Why is the model name in the dashboard XSS-safe?
 
@@ -102,8 +96,16 @@ rate limits, and a real billing ledger — the current cost figure is an estimat
 from published per-token rates. Multi-process would also mean moving SQLite off
 the critical path or accepting write contention.
 
+## Q: What if two requests arrive at the same time?
+
+A: SQLite `BEGIN IMMEDIATE` serializes the reservation transaction. The second request sees the first request's reservation before it can reserve its own budget, so both cannot reserve the same remaining cap.
+
+## Q: What if the provider omits token usage?
+
+A: The gateway fails closed. It records an error and retains the reservation until expiry instead of releasing an unaccounted request. That prevents a provider response without usage metadata from becoming a free-spend path.
+
 ## Q: How is this tested?
 
-A: 29 offline tests: key issue/verify/revoke, spend-cap 402, provider fallback
+A: Offline tests cover key issue/verify/revoke, spend-cap handling, provider fallback and retry policy with faked HTTP, agent loop termination and trace shape, dashboard script safety, and the atomic budget-reservation path. No test touches the network. key issue/verify/revoke, spend-cap 402, provider fallback
 and retry policy with faked HTTP, agent loop termination and trace shape,
 dashboard script safety. No test touches the network.
