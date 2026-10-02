@@ -269,7 +269,7 @@ class TestApi:
         config, auth, telemetry, providers = fresh
         auth.init(); telemetry.init()
         client = self._client(fresh)
-        r = client.post("/v1/chat/completions", json={"model": "x", "messages": []},
+        r = client.post("/v1/chat/completions", json={"model": "openai/gpt-oss-120b", "messages": []},
                         headers={"Authorization": "Bearer kk-test-admin"})
         assert r.status_code == 502
         assert telemetry.summary()["failed"] == 1
