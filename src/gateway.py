@@ -12,7 +12,7 @@ import time
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from src import auth, models, providers, telemetry
+from src import auth, models as model_registry, providers, telemetry
 from src.config import DEFAULT_MODELS, PROVIDER_CHAIN, DEFAULT_REQUEST_COMPLETION_TOKENS, MAX_REQUEST_COMPLETION_TOKENS
 
 app = FastAPI(title="Kay-Kay Gateway", version="1.0.0")
@@ -51,7 +51,7 @@ def _prepare_body(body: dict, model_id: str) -> tuple[dict, float]:
         raise HTTPException(400, {"error": "invalid_max_tokens", "max_tokens": MAX_REQUEST_COMPLETION_TOKENS})
     body["max_tokens"] = max_tokens
     prompt_upper = len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-    return body, models.estimate_cost_usd(body["model"], prompt_upper, max_tokens)
+    return body, model_registry.estimate_cost_usd(body["model"], prompt_upper, max_tokens)
 
 def _run_metered_chat(key_id: str, body: dict):
     cap = auth.spend_cap(key_id)
