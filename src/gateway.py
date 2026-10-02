@@ -46,6 +46,8 @@ def _admin(admin: HTTPAuthorizationCredentials = Depends(_bearer)):
 def _prepare_body(body: dict, model_id: str) -> tuple[dict, float]:
     body = dict(body)
     body.setdefault("model", model_id)
+    if body["model"] not in DEFAULT_MODELS:
+        raise HTTPException(400, {"error": "unknown_model", "model": body["model"], "advertised": DEFAULT_MODELS})
     max_tokens = int(body.get("max_tokens") or DEFAULT_REQUEST_COMPLETION_TOKENS)
     if max_tokens < 1 or max_tokens > MAX_REQUEST_COMPLETION_TOKENS:
         raise HTTPException(400, {"error": "invalid_max_tokens", "max_tokens": MAX_REQUEST_COMPLETION_TOKENS})
