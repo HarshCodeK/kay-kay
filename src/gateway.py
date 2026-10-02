@@ -86,6 +86,7 @@ def _run_metered_chat(key_id: str, body: dict):
         key_id, provider, response.get("model", body.get("model")), "ok",
         (time.time() - started) * 1000,
         int(usage["prompt_tokens"]), int(usage["completion_tokens"]),
+        cost_override_usd=worst_case,
     )
     telemetry.release_budget(reservation)
     return response, provider
