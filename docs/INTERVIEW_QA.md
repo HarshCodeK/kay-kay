@@ -36,7 +36,7 @@ rather than hide it.
 
 ## Q: How are spend caps enforced?
 
-A: Each request is charged to its key from the telemetry table. Before each provider call, the gateway computes a conservative worst-case cost from the bounded `max_tokens` plus a conservative prompt-size upper bound. It atomically reserves that amount in SQLite against the key's cap; if the reservation would exceed the remaining budget, the request gets HTTP 402. Actual token usage is recorded afterward and the unused reservation is released. If a successful provider response omits token-usage fields, the gateway fails closed and keeps the reservation until expiry rather than releasing unaccounted spend.
+A: Each request is charged to its key from the telemetry table. Before each provider call, the gateway computes a conservative worst-case cost from the bounded `max_tokens` plus a conservative prompt-size upper bound. It atomically reserves that amount in SQLite against the key's cap; if the reservation would exceed the remaining budget, the request gets HTTP 402. Actual token counts are recorded for observability, but the conservative reserved amount is charged to the budget. That means a provider cannot make the cap look cheaper merely by under-reporting usage. If usage fields are absent, the gateway fails closed and keeps the reservation until expiry.
 
 ## Q: Why must the agent route through the gateway?
 
