@@ -1,6 +1,6 @@
 # KAY-KAY — LLM Gateway
 
-An OpenAI-compatible gateway with provider fallback, API keys, conservative spend reservations and per-request telemetry. Plus a bounded tool-calling agent whose provider calls pass through the same accounting path.
+An OpenAI-compatible chat-completions gateway with provider fallback, API keys, conservative spend reservations and per-request telemetry. Plus a bounded tool-calling agent whose provider calls pass through the same accounting path.
 
 ```python
 from openai import OpenAI
@@ -96,7 +96,7 @@ streamlit run usage_dashboard.py   # telemetry view
 | Method | Path | What |
 |---|---|---|
 | POST | `/v1/chat/completions` | OpenAI-compatible completion |
-| GET | `/v1/models` | Live model ids |
+| GET | `/v1/models` | Advertised model ids and owners |
 | POST | `/v1/agent` | Bounded agent run; every provider turn is metered |
 | GET | `/v1/agent/tools` | Agent tool manifest |
 | GET | `/v1/usage` | Usage summary |
