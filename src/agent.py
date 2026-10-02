@@ -95,7 +95,7 @@ def _tool(name: str, args: dict) -> dict:
     return {"ok": False, "error": f"unknown tool {name!r}"}
 
 
-def run(task: str, model_id: str, max_rounds: int = MAX_ROUNDS, conversation: str = "") -> dict:
+def run(task: str, model_id: str, max_rounds: int = MAX_ROUNDS, conversation: str = "", chat_fn=None) -> dict:
     """Run one agent turn. Never raises for a provider failure."""
     started = time.time()
     messages = [
@@ -105,13 +105,14 @@ def run(task: str, model_id: str, max_rounds: int = MAX_ROUNDS, conversation: st
     ]
 
     trace: list = []
+    chat = chat_fn or providers.chat
     answer = ""
     rounds = 0
 
     for round_num in range(1, max_rounds + 1):
         t0 = time.time()
         try:
-            response, provider = providers.chat({
+            response, provider = chat({
                 "model": model_id, "messages": messages,
                 "tools": TOOLS, "tool_choice": "auto", "temperature": 0.2,
             })
