@@ -30,7 +30,7 @@ That is the entire integration. Everything else happens on the way through.
 
 ## The spend boundary is enforced before each provider call
 
-Each request reserves a conservative worst-case cost before it is sent upstream. The reservation includes a bounded `max_tokens` value, and SQLite makes the reservation atomic so concurrent requests cannot both consume the same remaining budget. Actual provider usage is recorded afterward and the unused reservation is released. If the provider omits token-usage fields, KAY-KAY fails closed and retains the reservation until expiry instead of treating the call as free.
+Each request reserves a conservative worst-case cost before it is sent upstream. The reservation includes a bounded `max_tokens` value, and SQLite makes the reservation atomic so concurrent requests cannot both consume the same remaining budget. Actual provider usage is recorded afterward, while the conservative reserved amount is charged to the budget. The temporary reservation is then released. This keeps the cap independent of provider token under-reporting; missing usage fields fail closed and retain the reservation until expiry.
 
 Agent turns use the same metered path on every round, and `max_rounds` is clamped to the configured bound.
 
