@@ -1,0 +1,69 @@
+name: ci
+
+# Two jobs answering two different questions:
+#   test  — does the code work?   (pytest, offline, no key)
+#   build — does the image work?  (a real docker build + a real HTTP request)
+#
+# The build job is the only way to know the Dockerfile is correct. A
+# Dockerfile nobody has built is a guess, and "Docker" is a resume line.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      # No GROQ_API_KEY here on purpose: every test must pass offline.
+      - name: Tests (offline)
+        run: python -m pytest tests/ -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kaykay:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Starting it proves more than building it: a service that starts and
+      # answers is a service that works.
+      - name: Start it and hit a real endpoint
+        run: |
+          docker run -d --name kaykay -p 8000:8000 kaykay:test
+          for i in $(seq 1 20); do
+            # /v1/models without a key must return 401, which proves routing,
+            # auth and the SQLite layer are all alive.
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/v1/models || true)
+            if [ "$code" = "401" ]; then
+              echo "gateway is up and enforcing auth"
+              curl -s http://127.0.0.1:8000/dashboard | head -c 120
+              echo; exit 0
+            fi
+            sleep 3
+          done
+          echo "gateway did not come up"; docker logs kaykay; exit 1
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs kaykay || true
