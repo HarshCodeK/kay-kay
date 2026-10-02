@@ -44,7 +44,7 @@ def init():
 
 
 def record(key_id, provider, model, status, latency_ms,
-           prompt_tokens=0, completion_tokens=0, error=None):
+           prompt_tokens=0, completion_tokens=0, error=None, cost_override_usd=None):
     init()
     rid = "r_" + uuid.uuid4().hex[:12]
     with _conn() as c:
@@ -54,7 +54,8 @@ def record(key_id, provider, model, status, latency_ms,
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (rid, datetime.datetime.now().isoformat(), key_id, provider, model,
              status, latency_ms, prompt_tokens, completion_tokens,
-             cost_usd(model, prompt_tokens, completion_tokens), error),
+             cost_usd(model, prompt_tokens, completion_tokens)
+             if cost_override_usd is None else float(cost_override_usd), error),
         )
     return rid
 
