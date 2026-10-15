@@ -1,3 +1,4 @@
+from collections import deque
 from dataclasses import dataclass
 from threading import Lock
 from typing import Callable
@@ -25,7 +26,8 @@ class Gateway:
         self.budget = budget
         self.spent = 0.0
         self.reserved = 0.0
-        self.usage = []
+        # Keep a bounded recent diagnostic window instead of retaining every call forever.
+        self.usage = deque(maxlen=2048)
         self._lock = Lock()
 
     def estimate(self, request: Request) -> float:
@@ -44,6 +46,8 @@ class Gateway:
             for name, call in self.providers.items():
                 try:
                     text = call(request)
+                    if not isinstance(text, str):
+                        raise TypeError("provider response must be text")
                     with self._lock:
                         self.reserved -= reservation
                         self.spent += reservation
