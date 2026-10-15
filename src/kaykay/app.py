@@ -137,5 +137,9 @@ def chat(body: Chat, x_api_key: str = Header(default="")):
     try:
         result = gateway.complete(Request(x_api_key, body.model, body.prompt, body.max_tokens))
     except RuntimeError as exc:
-        raise HTTPException(402 if str(exc) == "budget_exceeded" else 502, str(exc)) from exc
+        message = str(exc)
+        status = 402 if message == "budget_exceeded" else 400 if message in {
+            "unknown_model", "invalid_prompt", "invalid_max_tokens"
+        } else 502
+        raise HTTPException(status, message) from exc
     return {"text": result.text, "provider": result.provider, "estimated_cost": result.estimated_cost}
