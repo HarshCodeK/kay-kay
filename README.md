@@ -1,83 +1,81 @@
-# KAY-KAY — LLM Gateway Prototype
+# KAY-KAY — LLM gateway reliability lab
 
-KAY-KAY is a small FastAPI gateway prototype demonstrating provider fallback, API-key hashing, conservative budget reservation, and usage telemetry. Its provider functions are deterministic stubs, so the core flow can be tested without an LLM account.
+KAY-KAY is a small gateway prototype that makes three behaviors explicit: provider fallback, API-key gating, and spend reservation before provider work. Its providers are deterministic stubs, so the system is inexpensive and reproducible to test without an LLM account.
 
-**Stack:** Python, FastAPI, Pydantic, HTTPX (declared dependency), pytest.
+## What is implemented
 
-## Problem and intended use
+- API keys are high-entropy random values; only SHA-256 hashes are retained by the running process.
+- Key issuance requires a configured admin token and uses constant-time token comparison.
+- Chat requests require an issued key.
+- Spend is reserved under a lock before a provider is called. A failed provider path releases the reservation; a successful path commits the estimate.
+- Usage diagnostics are bounded to the latest 2,048 successful requests rather than growing without limit.
+- A small browser UI demonstrates key issuance and a completion request; /docs exposes the API contract.
+- /metrics reports per-route request counts, status codes, in-flight requests and recent latency percentiles.
 
-An application calling multiple LLM providers needs a single boundary for request validation, provider selection/fallback, budget enforcement, and usage reporting. This repository isolates a few of those control-flow ideas in a small, inspectable implementation. It is a learning prototype, not a production gateway or billing ledger.
+## Architecture and accounting semantics
 
-## Request flow
+~~~text
+request + valid key → estimate/reserve budget → primary provider → fallback if needed
+                                                   ↓ success
+                                      commit estimate and release reservation
+~~~
 
-`POST /v1/chat/completions → API-key check → cost estimate → atomic budget reservation → primary provider → fallback provider if needed → commit or release reservation → response`
+The estimate uses configured price per thousand estimated tokens and combines prompt word count with requested max tokens. It is not actual provider token usage. The budget is global to the process, not per API key, and the demo providers only echo text; no real LLM is called.
 
-The `Gateway` protects the budget reservation and usage list with a thread lock. It reserves estimated cost before provider work, releases the reservation if all providers fail, and charges the estimate when a provider succeeds. The current estimate is a simple word-count-plus-max-token heuristic; it is not provider-reported token usage or an invoice-grade cost.
+## Quickstart
 
-## API
+Requires Python 3.11+.
 
-- `GET /health` — process-level health and configured provider count.
-- `POST /v1/keys` — issues a random API key and stores only its SHA-256 hash in process memory.
-- `POST /v1/chat/completions` — requires the `X-API-Key` header and accepts `model`, `prompt`, and bounded `max_tokens`.
-
-Example:
-
-```bash
+~~~bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-uvicorn kaykay.app:app --host 0.0.0.0 --port 8000
-```
+KAYKAY_ADMIN_TOKEN=local-admin-token uvicorn kaykay.app:app --reload
+~~~
 
-Issue a demo key:
+Open the root URL for the browser demo, /docs for the API, or /metrics for process-local measurements. To issue a key from the API:
 
-```bash
-curl -X POST http://localhost:8000/v1/keys
-```
+~~~bash
+curl -X POST http://127.0.0.1:8000/v1/keys -H 'X-Admin-Token: local-admin-token'
+~~~
 
-Use the returned key in a request:
+The admin token is only for key issuance and must never be embedded in public client code or a screenshot. The browser UI accepts it as a password input. In deployments, set KAYKAY_ADMIN_TOKEN as a secret. If it is missing, key issuance is intentionally disabled.
 
-```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: REPLACE_WITH_KEY" \
-  -d '{"model":"default","prompt":"Explain a timeout briefly","max_tokens":64}'
-```
+## API
 
-Run tests with `pytest -q`.
+- GET /health: liveness.
+- GET /ready: readiness and whether key issuance is enabled.
+- GET /metrics: per-process observations; counters reset when the process restarts.
+- POST /v1/keys: admin-gated API-key issuance; maximum 1,000 keys per process.
+- POST /v1/chat/completions: requires X-API-Key and accepts model, prompt and max_tokens.
+- GET /docs: interactive OpenAPI docs.
 
-## Budget and fallback semantics
+## Test
 
-- A reservation is made under a lock before any provider is called.
-- Providers are tried in dictionary insertion order.
-- A successful provider consumes the reserved estimate.
-- If every provider raises, the reservation is released and the request fails.
-- Budget exhaustion returns HTTP 402; total provider failure returns HTTP 502.
-- Usage is held in memory and disappears when the process restarts.
+~~~bash
+pytest -q
+python -m compileall -q src scripts
+~~~
 
-These semantics are intentionally simple and should not be mistaken for a distributed quota system. A single process lock cannot coordinate budgets across multiple workers or replicas.
+## Reproducible load test
 
-## Security and correctness limitations
+See docs/RELIABILITY_LAB.md. Example:
 
-The current key-issuance endpoint is public and has no identity or authorization gate. Issued key hashes are stored only in process memory, so keys are lost on restart and do not work consistently across replicas. SHA-256 hashing is useful here for avoiding plaintext key storage, but the prototype does not provide key rotation, revocation, tenant isolation, durable usage records, audit trails, or abuse controls. Do not expose this implementation as an unrestricted public service or put real provider secrets behind it.
+~~~bash
+KAYKAY_ADMIN_TOKEN=local-admin-token python scripts/load_test.py --base-url http://127.0.0.1:8000 --issue-api-key --requests 100 --concurrency 10 --output artifacts/load-10.json
+curl http://127.0.0.1:8000/metrics
+~~~
 
-The provider functions currently echo a deterministic response rather than calling real LLM APIs. The returned cost is an estimate, not measured provider billing. The gateway does not yet implement request deadlines, provider-specific retries, circuit breaking, rate limits, structured output validation, or real token accounting.
+Reports contain client-observed throughput, p50/p95/p99/max latency, status codes, transport errors and error rate. They make no claim about server CPU, memory, real users, or capacity beyond the measured setup.
 
-## Capacity and load testing
+## Deployment
 
-No measured concurrency or throughput claim is made. To benchmark responsibly, record the exact commit, machine/hosting plan, process worker count, duration, request mix, and key setup. Measure throughput, p50/p95/p99 latency, error rate, budget-rejection rate, provider-fallback rate, CPU/RAM, and reservation/spend invariants under concurrency.
+The root render.yaml defines a free Render demo. The blueprint deliberately marks KAYKAY_ADMIN_TOKEN as a secret to configure in the Render dashboard. Free services sleep after inactivity and cannot scale to multiple instances. Since the API-key registry and budget are in memory, restarts invalidate keys and reset the budget. This must not be sold as a durable billing/auth platform.
 
-Start with the deterministic providers to isolate API and locking behavior. Then test injected provider latency/failures separately. A benchmark of deterministic stubs does **not** establish capacity for a real LLM provider. Validate that concurrent reservations never allow `spent + reserved` to exceed the configured budget, and verify that failed requests release reservations. Simulated clients are load-test traffic, not real customers.
+## Known limitations
 
-## Next engineering milestones
-
-1. Add tests for concurrent reservations, reservation release, and spend invariants.
-2. Protect key issuance and add key revocation/rotation.
-3. Move keys, budget state, and usage records to durable shared storage before multi-worker deployment.
-4. Add bounded request/provider timeouts and explicit provider health telemetry.
-5. Add rate limiting and per-tenant quotas.
-6. Integrate a real provider behind an interface, then test with a strict spend cap and secret-safe logging.
+The providers are placeholders, budget is process-global rather than per-key, API keys and budget do not survive restarts, there is no distributed rate limit or durable ledger, and metrics are local to one process. These limitations are intentional and documented rather than hidden behind claims of OpenAI compatibility or real provider economics.
 
 ## License
 
-MIT.
+MIT. See LICENSE.
