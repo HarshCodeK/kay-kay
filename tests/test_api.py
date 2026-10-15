@@ -32,3 +32,17 @@ def test_homepage_has_a_working_demo_entrypoint():
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "KAY-KAY" in response.text
+
+
+def test_unknown_model_is_a_client_error(monkeypatch):
+    monkeypatch.setenv("KAYKAY_ADMIN_TOKEN", "test-admin-token")
+    client = TestClient(app)
+    issued = client.post("/v1/keys", headers={"X-Admin-Token": "test-admin-token"})
+    key = issued.json()["api_key"]
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"X-API-Key": key},
+        json={"model": "not-configured", "prompt": "hello"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "unknown_model"
