@@ -30,7 +30,7 @@ def test_concurrent_reservations_never_overspend():
         sleep(.01)
         return "ok"
 
-    gateway = Gateway({"p": provider}, {"m": .01}, budget=.0002)
+    gateway = Gateway({"p": provider}, {"m": .01}, budget=.00002)
     request = Request("k", "m", "one", max_tokens=1)
     with ThreadPoolExecutor(max_workers=12) as pool:
         outcomes = list(pool.map(lambda _: _call(gateway, request), range(12)))
