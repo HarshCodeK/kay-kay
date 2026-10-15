@@ -46,3 +46,13 @@ def test_unknown_model_is_a_client_error(monkeypatch):
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "unknown_model"
+
+
+def test_unmatched_paths_do_not_create_unbounded_metric_labels():
+    client = TestClient(app)
+    client.get("/unmatched-a")
+    client.get("/unmatched-b")
+    routes = client.get("/metrics").json()["routes"]
+    assert "GET <unmatched>" in routes
+    assert "GET /unmatched-a" not in routes
+    assert "GET /unmatched-b" not in routes
