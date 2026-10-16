@@ -17,7 +17,7 @@ KAYKAY_ADMIN_TOKEN=local-admin-token python scripts/load_test.py --base-url http
 curl http://127.0.0.1:8000/metrics
 ~~~
 
-The report contains p50/p95/p99/max latency, throughput, status codes, transport failures and error rate. It does not include the admin token or the issued API key. Do not upload raw terminal logs if they contain secrets.
+The report contains p50/p95/p99/max latency, throughput, status codes, transport failures and error rate. It does not include the admin token or the issued API key. Do not upload raw terminal logs if they contain secrets. The generator uses a bounded worker pool, caps a run at 100,000 requests and 10,000 configured in-flight requests, and treats only 2xx responses as successful; these are client-side safety bounds, not target-capacity claims.
 
 ## What to measure
 
